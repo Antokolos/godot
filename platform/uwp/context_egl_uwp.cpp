@@ -102,7 +102,6 @@ Error ContextEGL_UWP::initialize() {
 	EGLDisplay display = EGL_NO_DISPLAY;
 	EGLContext context = EGL_NO_CONTEXT;
 	EGLSurface surface = EGL_NO_SURFACE;
-	EGLConfig config = nullptr;
 	EGLint contextAttribs[3];
 	if (driver == GLES_2_0) {
 		contextAttribs[0] = EGL_CONTEXT_CLIENT_VERSION;
@@ -126,10 +125,18 @@ Error ContextEGL_UWP::initialize() {
 			EGL_PLATFORM_ANGLE_TYPE_ANGLE,
 			EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
 
+			EGL_PLATFORM_ANGLE_D3D11ON12_ANGLE, EGL_TRUE,
+			EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE,
+			//EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_DEVICE_TYPE_D3D_WARP_ANGLE,	// Software renderer, it works at most cases, but it's slow
+			EGL_EXPERIMENTAL_PRESENT_PATH_ANGLE, EGL_EXPERIMENTAL_PRESENT_PATH_FAST_ANGLE,
+			EGL_PLATFORM_ANGLE_DEBUG_LAYERS_ENABLED_ANGLE, EGL_FALSE,
+
+#ifdef EGL_ANGLE_DISPLAY_ALLOW_RENDER_TO_BACK_BUFFER
 			// EGL_ANGLE_DISPLAY_ALLOW_RENDER_TO_BACK_BUFFER is an optimization that can have large performance benefits on mobile devices.
 			// Its syntax is subject to change, though. Please update your Visual Studio templates if you experience compilation issues with it.
 			EGL_ANGLE_DISPLAY_ALLOW_RENDER_TO_BACK_BUFFER,
 			EGL_TRUE,
+#endif
 
 			// EGL_PLATFORM_ANGLE_ENABLE_AUTOMATIC_TRIM_ANGLE is an option that enables ANGLE to automatically call
 			// the IDXGIDevice3::Trim method on behalf of the application when it gets suspended.
@@ -154,29 +161,62 @@ Error ContextEGL_UWP::initialize() {
 		if (eglInitialize(display, &majorVersion, &minorVersion) == EGL_FALSE) {
 			throw Exception::CreateException(E_FAIL, L"Failed to initialize EGL");
 		}
+		OS::get_singleton()->print("Successfully initialized EGL %d.%d\n", majorVersion, minorVersion);
 
 		if (eglGetConfigs(display, NULL, 0, &numConfigs) == EGL_FALSE) {
 			throw Exception::CreateException(E_FAIL, L"Failed to get EGLConfig count");
 		}
 
-		if (eglChooseConfig(display, configAttribList, &config, 1, &numConfigs) == EGL_FALSE) {
-			throw Exception::CreateException(E_FAIL, L"Failed to choose first EGLConfig count");
+		EGLConfig* configs = memnew_arr(EGLConfig, numConfigs);
+		if (!configs) {
+			throw Exception::CreateException(E_FAIL, L"Failed to create EGLConfigs array");
 		}
+		if (eglChooseConfig(display, configAttribList, configs, numConfigs, &numConfigs) == EGL_FALSE) {
+			memdelete_arr(configs);
+			throw Exception::CreateException(E_FAIL, L"Failed to choose EGLConfigs");
+		}
+		OS::get_singleton()->print("Matched configs count = %d\n", numConfigs);
 
-		surface = eglCreateWindowSurface(display, config, reinterpret_cast<IInspectable *>(window), surfaceAttribList);
+		for (int i = 0; i < numConfigs; i++) {
+			EGLConfig config = configs[i];
+			OS::get_singleton()->print("Trying config %d...\n", i);
+			EGLint rt;
+			if (eglGetConfigAttrib(display, config, EGL_RENDERABLE_TYPE, &rt) == EGL_FALSE) {
+				OS::get_singleton()->print("Failed to get EGL_RENDERABLE_TYPE attribute; error = 0x%x\n", eglGetError());
+				continue;
+			}
+			if (driver == GLES_2_0 && !(rt & EGL_OPENGL_ES2_BIT)) {
+				print_line("Driver is GLES2 and current config does not have EGL_OPENGL_ES2_BIT set, trying next one...");
+				continue;
+			} else if (!(rt & EGL_OPENGL_ES3_BIT_KHR)) {
+				print_line("Driver is GLES3 and current config does not have EGL_OPENGL_ES3_BIT_KHR set, trying next one...");
+				continue;
+			}
+			surface = eglCreateWindowSurface(display, config, reinterpret_cast<IInspectable *>(window), surfaceAttribList);
+			if (surface == EGL_NO_SURFACE) {
+				OS::get_singleton()->print("Failed to create surface; error = 0x%x\n", eglGetError());
+			} else {
+				context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
+				if (context != EGL_NO_CONTEXT) {
+					// Everything is OK
+					break;
+				}
+				OS::get_singleton()->print("Failed to create context; error = 0x%x\n", eglGetError());
+				eglDestroySurface(display, surface);
+				surface = EGL_NO_SURFACE;
+			}
+		}
+		memdelete_arr(configs);
+
 		if (surface == EGL_NO_SURFACE) {
-			throw Exception::CreateException(E_FAIL, L"Failed to create EGL fullscreen surface");
-		}
-
-		context = eglCreateContext(display, config, EGL_NO_CONTEXT, contextAttribs);
-		if (context == EGL_NO_CONTEXT) {
-			throw Exception::CreateException(E_FAIL, L"Failed to create EGL context");
+			throw Exception::CreateException(E_FAIL, L"Failed to create EGL fullscreen surface and context");
 		}
 
 		if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
 			throw Exception::CreateException(E_FAIL, L"Failed to make fullscreen EGLSurface current");
 		}
-	} catch (...) {
+	} catch (Exception^ e) {
+		print_line(e->Message->Data());
 		return FAILED;
 	};
 

@@ -96,7 +96,8 @@ def configure(env):
 
         angle_build_cmd += "ARM"
 
-        env.Append(LIBPATH=[angle_root + '/winrt/10/src/Release_ARM/lib'])
+        #env.Append(LIBPATH=[angle_root + '/winrt/10/src/Release_ARM/lib'])
+        env.Append(LIBPATH=[angle_root + '/out/Release_ARM'])
 
     else:
         compiler_version_str = methods.detect_visual_c_compiler_version(env['ENV'])
@@ -118,7 +119,8 @@ def configure(env):
 
             env.Append(LINKFLAGS=['/MACHINE:X86'])
             env.Append(LIBPATH=[vc_base_path + 'lib/store'])
-            env.Append(LIBPATH=[angle_root + '/winrt/10/src/Release_Win32/lib'])
+            #env.Append(LIBPATH=[angle_root + '/winrt/10/src/Release_Win32/lib'])
+            env.Append(LIBPATH=[angle_root + '/out/Release_Win32'])
 
         else:
             arch = "x64"
@@ -127,7 +129,8 @@ def configure(env):
 
             env.Append(LINKFLAGS=['/MACHINE:X64'])
             env.Append(LIBPATH=[os.environ['VCINSTALLDIR'] + 'lib/store/amd64'])
-            env.Append(LIBPATH=[angle_root + '/winrt/10/src/Release_x64/lib'])
+            #env.Append(LIBPATH=[angle_root + '/winrt/10/src/Release_x64/lib'])
+            env.Append(LIBPATH=[angle_root + '/out/Release_x64'])
 
     env["PROGSUFFIX"] = "." + arch + env["PROGSUFFIX"]
     env["OBJSUFFIX"] = "." + arch + env["OBJSUFFIX"]
@@ -158,9 +161,9 @@ def configure(env):
         'WindowsApp',
         'mincore',
         'ws2_32',
-        'libANGLE',
-        'libEGL',
-        'libGLESv2',
+        #'libANGLE',
+        'libEGL.dll',
+        'libGLESv2.dll',
         'bcrypt',
     ]
     env.Append(LINKFLAGS=[p + ".lib" for p in LIBS])
